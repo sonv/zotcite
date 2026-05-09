@@ -1,22 +1,9 @@
 # Zotcite
 
 > [!Note]
-> Users of Vim and Neovim < 0.10.4 have to switch to the "vim" branch.
+> I modified this plugin to satisfy my need. All the modifications were done by Codex/Claude.
 
-> [!Note]
-> Users of Neovim < 0.11.5 have to switch to the "pynvim" branch.
 
-> [!Note]
-> Users of Zotero < 8 have to switch to zotcite 0.7 (tag v0.7) if using Better
-> BibTeX citation keys.
-
-> [!Note]
-> Zotcite now uses conventional citation keys based on a citation template
-> and no longer requires the `zotref` filter. Alternatively, it can use Better
-> BibTeX citation keys. There is also an option to use the internal Zotero
-> item keys and insert the "Author-Year" part of the citation key as virtual
-> text. If you have documents using the old system, and don't want to manually
-> convert then, you can use the "pynvim" branch.
 
 _Zotcite_ is a Neovim plugin that provides integration with Zotero for
 Markdown, Quarto, Rmd, vimwiki, Typst, LaTeX, and Rnoweb file types. With
