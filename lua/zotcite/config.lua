@@ -46,7 +46,7 @@
 
 ---@type ZotciteUserOpts
 local config = {
-    key_type = "template",
+    key_type = "better-bibtex",
     hl_cite_key = true,
     sort_key = "dateModified",
     conceallevel = -1,
@@ -68,6 +68,7 @@ local config = {
 }
 
 local did_global_init = false
+local scheduled_global_init = false
 local first_buf
 local key_type = {}
 
@@ -136,7 +137,7 @@ end
 
 M.get_b = function() return b end
 
-local set_path = function()
+M.set_path = function()
     if not config.python_scripts_path then
         config.python_scripts_path = debug.getinfo(1, "S").source:match("^@(.*)/lua.*")
             .. "/scripts"
@@ -172,16 +173,18 @@ local global_init = function()
     require("zotcite.hl").citations()
     require("zotcite.lsp").start()
 
-    set_path()
+    M.set_path()
     vim.env.RmdFile = vim.fn.expand("%:p")
 
-    vim.api.nvim_create_user_command(
-        "Zseek",
-        function(tbl)
-            require("zotcite.seek").refs(tbl.args, require("zotcite.seek").print)
-        end,
-        { nargs = "?", desc = "Zotcite: seek references" }
-    )
+    vim.api.nvim_create_user_command("Zseek", function(tbl)
+        local seek = require("zotcite.seek")
+        local cb = tbl.bang and seek.print or seek.insert
+        seek.refs(tbl.args, cb)
+    end, {
+        nargs = "?",
+        bang = true,
+        desc = "Zotcite: seek references (insert citation; :Zseek! to only echo)",
+    })
     vim.api.nvim_create_user_command(
         "Znote",
         function(tbl) require("zotcite.get").note(tbl.args) end,
@@ -210,6 +213,7 @@ local global_init = function()
     )
     vim.api.nvim_create_user_command("Zconfig", require("zotcite.config").show, {})
     require("zotcite.get").collection_name(first_buf)
+    did_global_init = true
     return true
 end
 
@@ -223,15 +227,17 @@ M.init = function()
         require("zotcite.hl").citations()
         require("zotcite.lsp").start()
     else
-        update_config()
+        if not scheduled_global_init then update_config() end
         set_buffer_key_type()
-        did_global_init = true
-        if vim.v.vim_did_enter == 0 then
-            vim.api.nvim_create_autocmd("VimEnter", {
-                callback = function() vim.schedule(global_init) end,
-            })
-        else
-            vim.schedule(global_init)
+        if not scheduled_global_init then
+            scheduled_global_init = true
+            if vim.v.vim_did_enter == 0 then
+                vim.api.nvim_create_autocmd("VimEnter", {
+                    callback = function() vim.schedule(global_init) end,
+                })
+            else
+                vim.schedule(global_init)
+            end
         end
     end
 
@@ -293,6 +299,13 @@ M.init = function()
         "<Cmd>lua require('zotcite.get').abstract()<CR>",
         "Zotcite: Paste abstract note in current buffer"
     )
+    create_map(
+        "n",
+        "<Plug>ZSeek",
+        "<Leader>zs",
+        "<Cmd>Zseek<CR>",
+        "Zotcite: open Zseek picker and insert citation"
+    )
     if config.conceallevel >= 0 then vim.o.conceallevel = config.conceallevel end
     vim.api.nvim_create_autocmd(
         "InsertLeave",
@@ -306,6 +319,7 @@ M.init = function()
         buffer = bnr,
         callback = function(ev) require("zotcite.get").collection_name(ev.buf) end,
     })
+    table.insert(b, { bufnr = bnr })
 end
 
 M.get_config = function() return config end

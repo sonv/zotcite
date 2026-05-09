@@ -33,8 +33,9 @@ description of its features, including screenshots at:
 ------------------------------------------------------------------------------
 2.1. Commands                                               *zotcite_commands*
 
-You can use the command `:Zseek` to see what references have either a last
-author's name or title matching the pattern that you are seeking for. Example:
+You can use the command `:Zseek` to seek references that have either a last
+author's name or title matching the pattern. The matched reference is
+inserted as a citation at the cursor position. Example:
 >vim
  :Zseek marx
 
@@ -43,10 +44,13 @@ would give the same result as the above one:
 >vim
  :Zseek marx anything
 
+To only echo the selected reference to the status bar without inserting,
+use the bang form `:Zseek!`.
+
 The Telescope picker is filled with references that include the searched
 pattern as a substring in the author's names or the work's title, but
 Telescope allows you to further fuzzy filter the results. If you want the
-Telescope picker filled with Zotero's entire database, run `:Zeek` without
+Telescope picker filled with Zotero's entire database, run `:Zseek` without
 arguments. The same Telescope dialogue is also used by `:Zannotations`,
 `:Zselectannotations`, `:Znote`, and `:Zpdfnote` (see below).
 
@@ -116,6 +120,9 @@ In Vim's Normal mode, put the cursor over a citation key and press:
 
   - <Leader>zv to view the (pdf or html) document generated from the current
     (Markdown, Rmd, or Quarto) document.
+
+  - <Leader>zs to open the Zseek Telescope picker and insert the selected
+    reference as a citation at the cursor.
 
 
 ------------------------------------------------------------------------------
@@ -282,7 +289,10 @@ What is the best for you:
     course, you have no choice but to use Better BibTeX keys too.
 
 The type of citation key is defined with the option `key_type`. Valid values
-are "template" (the default), "better-bibtex", and "zotero". Example:
+are "better-bibtex" (the default), "template", and "zotero". When set to
+"better-bibtex" but Better BibTeX is not in use (no entries carry a Better
+BibTeX citation key), zotcite silently falls back to template-generated keys.
+Example:
 >lua
  key_type = "zotero",
 <

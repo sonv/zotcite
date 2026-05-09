@@ -26,6 +26,57 @@ M.print = function(ref)
     vim.schedule(function() vim.api.nvim_echo(msg, false, {}) end)
 end
 
+--- Find the enclosing \xxxcite{...} region on `line` containing cursor `col_0`
+--- (0-indexed byte column). Returns 1-indexed positions of `{` and `}`, or nil.
+local find_cite_region = function(line, col_0)
+    local pos = 1
+    while pos <= #line do
+        local s, e = line:find("\\%w*cit%w*{", pos)
+        if not s then return nil end
+        local close = line:find("}", e + 1)
+        if not close then return nil end
+        if col_0 >= s - 1 and col_0 <= close - 1 then return e, close end
+        pos = close + 1
+    end
+    return nil
+end
+
+--- Insert the selected reference as a citation at the cursor position
+---@param ref table Telescope selection
+M.insert = function(ref)
+    if not ref then return end
+    local kt = require("zotcite.config").get_key_type(vim.api.nvim_get_current_buf())
+    local key = kt == "zotero" and ref.value.key or ref.value.cite
+    local ft = vim.bo.filetype
+
+    if ft == "tex" or ft == "rnoweb" then
+        local cur = vim.api.nvim_win_get_cursor(0)
+        local row, col = cur[1], cur[2]
+        local line = vim.api.nvim_buf_get_lines(0, row - 1, row, true)[1] or ""
+        local _, close_pos = find_cite_region(line, col)
+        if close_pos then
+            local insert_at = close_pos - 1
+            local prev = line:sub(close_pos - 1, close_pos - 1)
+            local sep
+            if prev == "{" or prev == " " then
+                sep = ""
+            elseif prev == "," then
+                sep = " "
+            else
+                sep = ", "
+            end
+            local text = sep .. key
+            vim.api.nvim_buf_set_text(0, row - 1, insert_at, row - 1, insert_at, { text })
+            vim.api.nvim_win_set_cursor(0, { row, insert_at + #text })
+        else
+            vim.api.nvim_put({ "\\cite{" .. key .. "}" }, "c", true, true)
+        end
+    else
+        vim.api.nvim_put({ "@" .. key }, "c", true, true)
+    end
+    vim.schedule(require("zotcite.hl").citations)
+end
+
 local format_preview = function(v)
     local alist = {}
     local authors
@@ -133,6 +184,7 @@ M.refs = function(key, cb)
             abstract = v.abstractNote,
             key = v.zotkey,
             cite = v.citekey,
+            has_attachment = v.has_attachment,
         })
     end
     if awidth > awlim then awidth = awlim end
@@ -148,6 +200,7 @@ M.refs = function(key, cb)
                     local displayer = entry_display.create({
                         separator = " ",
                         items = {
+                            { width = 1 }, -- Attachment indicator
                             { width = awidth }, -- Author
                             { width = 4 }, -- Year
                             { remaining = true }, -- Title
@@ -157,6 +210,7 @@ M.refs = function(key, cb)
                         value = entry,
                         display = function(e)
                             return displayer({
+                                { e.value.has_attachment and "+" or " ", "Special" },
                                 { e.value.alastnm, "Identifier" },
                                 { e.value.year, "Number" },
                                 { e.value.title, "Title" },

@@ -124,36 +124,83 @@ local citation_key_vt = function(line, pos)
     end
 end
 
+--- For tex/rnoweb: if cursor sits anywhere inside a `\xxxcite{...}` block
+--- (including on the command name or braces), return the key the cursor is
+--- on, or the first key in the block as a fallback.
+---@param line string
+---@param col_0 integer 0-indexed cursor byte column
+---@return string | nil
+local extract_tex_cite_key = function(line, col_0)
+    local pos = 1
+    while pos <= #line do
+        local s, e = line:find("\\%w*cit%w*{", pos)
+        if not s then return nil end
+        local close = line:find("}", e + 1)
+        if not close then return nil end
+        if col_0 + 1 >= s and col_0 + 1 <= close then
+            local content = line:sub(e + 1, close - 1)
+            local cur_off = col_0 + 1 - e
+            local i = 1
+            while i <= #content do
+                while i <= #content and content:sub(i, i):match("[,%s]") do
+                    i = i + 1
+                end
+                local k_start = i
+                while i <= #content and not content:sub(i, i):match("[,%s]") do
+                    i = i + 1
+                end
+                if k_start < i and cur_off >= k_start and cur_off <= i then
+                    return content:sub(k_start, i - 1)
+                end
+            end
+            return content:match("([^,%s]+)")
+        end
+        pos = close + 1
+    end
+    return nil
+end
+
 M.citation_key = function()
     local lnum = vim.api.nvim_win_get_cursor(0)[1]
     local line = vim.api.nvim_buf_get_lines(0, lnum - 1, lnum, true)[1]
     local pos = vim.api.nvim_win_get_cursor(0)[2]
+    if vim.bo.filetype == "tex" or vim.bo.filetype == "rnoweb" then
+        local key = extract_tex_cite_key(line, pos)
+        if key and key ~= "" then return key end
+    end
     return citation_key_vt(line, pos)
 end
 
 M.reference_data = function(btype)
     local wrd = M.citation_key()
-    if wrd ~= "" then
-        local repl = zotero.get_ref_data(wrd)
-        if type(repl) ~= "table" then
-            zwarn("Citation key not found")
-            return
-        end
-        local info = {}
-        if btype == "raw" then
-            for k, v in pairs(repl) do
-                table.insert(info, { k, "Title" })
-                table.insert(info, { ": " .. vim.inspect(v):gsub("\n$", "") .. "\n" })
-            end
-        else
-            if repl.alastnm then
-                table.insert(info, { repl.alastnm .. " ", "Identifier" })
-            end
-            if repl.year then table.insert(info, { repl.year .. " ", "Number" }) end
-            if repl.title then table.insert(info, { repl.title, "Title" }) end
-        end
-        vim.schedule(function() vim.api.nvim_echo(info, false, {}) end)
+    if wrd == "" then return end
+    local repl = zotero.get_ref_data(wrd)
+    if type(repl) ~= "table" then
+        zwarn("Citation key not found")
+        return
     end
+    local lines = {}
+    if btype == "raw" then
+        local keys = {}
+        for k, _ in pairs(repl) do
+            table.insert(keys, k)
+        end
+        table.sort(keys)
+        for _, k in ipairs(keys) do
+            table.insert(lines, k .. ": " .. vim.inspect(repl[k]):gsub("\n$", ""))
+        end
+    else
+        local parts = {}
+        if repl.alastnm then table.insert(parts, repl.alastnm) end
+        if repl.year then table.insert(parts, repl.year) end
+        if repl.title then table.insert(parts, repl.title) end
+        table.insert(lines, table.concat(parts, " "))
+    end
+    vim.schedule(
+        function()
+            vim.notify(table.concat(lines, "\n"), vim.log.levels.INFO, { title = "zotcite" })
+        end
+    )
 end
 
 local finish_citation = function(ref)

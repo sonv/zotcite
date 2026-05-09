@@ -201,18 +201,19 @@ local function get_zotero_prefs()
             if vim.uv.fs_access(zprefs, "r") then
                 local prefs = vim.fn.readfile(zprefs)
                 for _, pref in pairs(prefs) do
-                    if
-                        pref:find("extensions.zotero.baseAttachmentPath")
-                        and pref:find("extensions.zotero.baseAttachmentPath") > 0
-                    then
-                        adir = pref:match('.*", "(.*)".*\n')
+                    if pref:find("extensions%.zotero%.baseAttachmentPath") then
+                        adir = pref:match(
+                            '"extensions%.zotero%.baseAttachmentPath"%s*,%s*"(.-)"'
+                        )
                     end
-                    if
-                        pref:find("extensions.zotero.dataDir")
-                        and pref:find("extensions.zotero.dataDir") > 0
-                    then
-                        local data_dir = pref:match('.*", "(.*)".*')
-                        if vim.uv.fs_access(data_dir .. "/zotero.sqlite", "r") then
+                    if pref:find("extensions%.zotero%.dataDir") then
+                        local data_dir = pref:match(
+                            '"extensions%.zotero%.dataDir"%s*,%s*"(.-)"'
+                        )
+                        if
+                            data_dir
+                            and vim.uv.fs_access(data_dir .. "/zotero.sqlite", "r")
+                        then
                             zsql = data_dir .. "/zotero.sqlite"
                         end
                     end
@@ -473,22 +474,35 @@ end
 local function add_citekeys()
     local kt = require("zotcite.config").get_key_type(vim.api.nvim_get_current_buf())
     if kt == "better-bibtex" then
-        local missing_ck = {}
+        local total = 0
+        local with_ck = 0
         for _, v in pairs(entry) do
-            if v.citationKey then
-                v.citekey = v.citationKey
-            else
-                table.insert(
-                    missing_ck,
-                    vim.inspect(v.author) .. " " .. vim.inspect(v.title)
-                )
-            end
+            total = total + 1
+            if v.citationKey then with_ck = with_ck + 1 end
         end
 
-        if #missing_ck > 40 then
-            zwarn("Missing 'Citation Key' for " .. tostring(#missing_ck) .. " entries")
-        elseif #missing_ck > 0 then
-            zwarn("Missing 'Citation Key' for:\n" .. table.concat(missing_ck, "\n"))
+        if total > 0 and with_ck == 0 then
+            -- Better BibTeX not in use; fall back to template silently
+            kt = "template"
+        else
+            local missing_ck = {}
+            for _, v in pairs(entry) do
+                if v.citationKey then
+                    v.citekey = v.citationKey
+                else
+                    table.insert(
+                        missing_ck,
+                        vim.inspect(v.author) .. " " .. vim.inspect(v.title)
+                    )
+                end
+            end
+            if #missing_ck > 40 then
+                zwarn(
+                    "Missing 'Citation Key' for " .. tostring(#missing_ck) .. " entries"
+                )
+            elseif #missing_ck > 0 then
+                zwarn("Missing 'Citation Key' for:\n" .. table.concat(missing_ck, "\n"))
+            end
         end
     end
 
@@ -508,6 +522,32 @@ local function add_citekeys()
                     i = i + 1
                 end
             end
+        end
+    end
+end
+
+--- Better BibTeX writes "Citation Key: <key>" to the Extra field of each
+--- Zotero item for portability. Use it as a fallback when the citationKey
+--- field isn't directly present in itemDataValues.
+local function add_bbt_keys_from_extra()
+    for _, v in pairs(entry) do
+        if not v.citationKey and v.extra then
+            local ck = v.extra:match("[Cc]itation [Kk]ey:%s*(%S+)")
+            if ck then v.citationKey = ck end
+        end
+    end
+end
+
+local function add_attachments_flag()
+    local query = "SELECT DISTINCT itemAttachments.parentItemID"
+        .. " FROM itemAttachments"
+        .. " WHERE itemAttachments.parentItemID IS NOT NULL"
+        .. "   AND itemAttachments.path IS NOT NULL"
+    local sql_data = get_sql_data(query)
+    if not sql_data then return end
+    for _, v in pairs(sql_data) do
+        if entry[v.parentItemID] then
+            entry[v.parentItemID].has_attachment = true
         end
     end
 end
@@ -1181,6 +1221,8 @@ local function load_zotero_data()
     delete_items()
     add_most_fields()
     add_authors()
+    add_attachments_flag()
+    add_bbt_keys_from_extra()
     add_citekeys()
 end
 
@@ -1211,20 +1253,17 @@ function M.get_match(ptrn, d)
     ptrn = ptrn:lower()
     for _, v in ipairs(keys) do
         local e = entry[v]
+        local alastnm_lc = e.alastnm and e.alastnm:lower()
+        local alastnm_pos = alastnm_lc and alastnm_lc:find(ptrn)
         if e.citekey:lower():find(ptrn) == 1 then
             table.insert(p1, e)
-        elseif e.alastnm and e.alastnm[1] and e.alastnm[1][1]:lower():find(ptrn) == 1 then
+        elseif alastnm_pos == 1 then
             table.insert(p2, e)
         elseif e.title and e.title:lower():find(ptrn) == 1 then
             table.insert(p3, e)
         elseif e.citekey:lower():find(ptrn) and e.citekey:lower():find(ptrn) > 1 then
             table.insert(p4, e)
-        elseif
-            e.alastnm
-            and e.alastnm[1]
-            and e.alastnm[1][1]:lower():find(ptrn)
-            and e.alastnm[1][1]:lower():find(ptrn) > 1
-        then
+        elseif alastnm_pos and alastnm_pos > 1 then
             table.insert(p5, e)
         elseif
             e.title
@@ -1292,15 +1331,14 @@ function M.init()
         return false
     end
 
-    if not config.zotero_sqlite_path then
+    if not config.zotero_sqlite_path or not config.attach_dir then
         local adir, zdir = get_zotero_prefs()
         if adir and not config.attach_dir then config.attach_dir = adir end
-        if zdir then
+        if zdir and not config.zotero_sqlite_path then
             config.zotero_sqlite_path = zdir
-        else
-            return false
         end
     end
+    if not config.zotero_sqlite_path then return false end
 
     -- Temporary directory
     if not config.tmpdir then
