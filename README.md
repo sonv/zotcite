@@ -1,7 +1,8 @@
 # Zotcite
 
 > [!Note]
-> I modified this plugin to satisfy my need. All the modifications were done by Codex/Claude.
+> This fork contains local modifications for my workflow. The modifications
+> were implemented with Codex/Claude.
 
 
 
@@ -12,7 +13,8 @@ _zotcite_ you can:
   - Do auto-completion of citation keys from Zotero database in
     Markdown, RMarkdown, Quarto, LaTeX, Rnoweb, and Typst documents.
 
-  - Quickly see on the status bar information on the reference under the cursor.
+  - Quickly see a notification with information on the reference under the
+    cursor.
 
   - Open the PDF attachment of the reference associated with the citation key
     under the cursor.
@@ -21,6 +23,25 @@ _zotcite_ you can:
     references.
 
   - Extract Zotero notes and annotations from Zotero database.
+
+## Local changes in this version
+
+- Better BibTeX citation keys are the default. If no Zotero entries have
+  Better BibTeX keys, Zotcite falls back to template-generated keys.
+
+- Better BibTeX keys are also read from `Citation Key: ...` lines in Zotero's
+  Extra field when they are not exposed directly in the database.
+
+- `:Zseek` now inserts the selected reference as a citation at the cursor. Use
+  `:Zseek!` to only echo the selected reference. The default `<Leader>zs`
+  mapping opens the same insertion picker.
+
+- In TeX and Rnoweb buffers, Zseek inserts `\cite{key}` when the cursor is not
+  already inside a citation command, and appends the selected key to the
+  existing `\...cite...{}` block when it is.
+
+- The Telescope picker shows `+` in the first column for entries with Zotero
+  attachments.
 
 
 ## Installation
