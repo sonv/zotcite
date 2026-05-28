@@ -812,14 +812,16 @@ function M.update_bib(zkeys, bibf, ktype, verbose)
         end
     end
 
-    -- Replace existing references and add new ones
+    local changed = false
     local newbib = get_bib(zkeys, ktype)
     for _, key in ipairs(zkeys) do
-        if newbib[key] then
-            if not bib[key] then table.insert(order, key) end
+        if newbib[key] and not bib[key] then
+            table.insert(order, key)
             bib[key] = newbib[key]
+            changed = true
         end
     end
+    if old_content and not changed then return end
 
     local new_content = serialize_bib(bib, order, prefix)
     if old_content and old_content == new_content then return end
