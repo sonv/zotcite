@@ -671,7 +671,7 @@ local function get_bib_ref(item, ktype)
     }) do
         if e[aa] then
             local names = {}
-            for _, pair in pairs(e[aa]) do
+            for _, pair in ipairs(e[aa]) do
                 local last, first = pair[1], pair[2]
                 table.insert(names, last .. ", " .. first)
             end
@@ -712,7 +712,8 @@ local function get_bib_ref(item, ktype)
         table.insert(dont, v)
     end
 
-    for f, val in pairs(e) do
+    local fields = {}
+    for f, _ in pairs(e) do
         local skip = false
         for _, d in pairs(dont) do
             if f == d then
@@ -720,10 +721,12 @@ local function get_bib_ref(item, ktype)
                 break
             end
         end
-        if not skip then
-            local v = tostring(val):gsub("\n", " ")
-            table.insert(ref, "  " .. f .. " = {" .. v .. "},")
-        end
+        if not skip then table.insert(fields, f) end
+    end
+    table.sort(fields)
+    for _, f in ipairs(fields) do
+        local v = tostring(e[f]):gsub("\n", " ")
+        table.insert(ref, "  " .. f .. " = {" .. v .. "},")
     end
     table.insert(ref, "}")
     table.insert(ref, "")
@@ -736,13 +739,37 @@ end
 ---@return table
 local function get_bib(keys, ktype)
     local ref = {}
-    for _, k in pairs(keys) do
+    for _, k in ipairs(keys) do
         for _, e in pairs(entry) do
             local key = ktype == "zotero" and e.zotkey or e.citekey
             if k == key then ref[k] = get_bib_ref(e, ktype) end
         end
     end
     return ref
+end
+
+local function serialize_bib(bib, order, prefix)
+    local chunks = {}
+    local emitted = {}
+    if prefix and #prefix > 0 then table.insert(chunks, table.concat(prefix, "\n")) end
+    for _, key in ipairs(order) do
+        if bib[key] and not emitted[key] then
+            table.insert(chunks, table.concat(bib[key], "\n"))
+            emitted[key] = true
+        end
+    end
+
+    local keys = {}
+    for key, _ in pairs(bib) do
+        if not emitted[key] then table.insert(keys, key) end
+    end
+    table.sort(keys)
+    for _, key in ipairs(keys) do
+        table.insert(chunks, table.concat(bib[key], "\n"))
+    end
+
+    if #chunks == 0 then return "" end
+    return table.concat(chunks, "\n") .. "\n"
 end
 
 --- Build the contents of a .bib file
@@ -752,36 +779,54 @@ end
 ---@param verbose boolean Whether to print debugging information or not
 function M.update_bib(zkeys, bibf, ktype, verbose)
     local bib = {}
+    local order = {}
+    local old_lines = {}
+    local old_content
+    local prefix = {}
 
     local f = io.open(bibf, "r")
     if f then
         if verbose then zwarn('zotcite: updating "' .. tostring(bibf) .. '"\n') end
         local key = nil
         for line in f:lines() do
+            table.insert(old_lines, line)
             if string.sub(line, 1, 1) == "@" then
                 local clean_line = string.gsub(line, ",%s*$", "")
                 key = string.gsub(clean_line, "^@.*{", "")
                 bib[key] = {}
+                table.insert(order, key)
             end
-            if key then table.insert(bib[key], line) end
+            if key then
+                table.insert(bib[key], line)
+            else
+                table.insert(prefix, line)
+            end
         end
         f:close()
+        old_content = #old_lines > 0 and table.concat(old_lines, "\n") .. "\n" or ""
     else
         if verbose then zwarn('zotcite: writing "' .. tostring(bibf) .. '"\n') end
         bib = get_bib(zkeys, ktype)
+        for _, key in ipairs(zkeys) do
+            if bib[key] then table.insert(order, key) end
+        end
     end
 
     -- Replace existing references and add new ones
     local newbib = get_bib(zkeys, ktype)
-    for k, v in pairs(newbib) do
-        bib[k] = v
+    for _, key in ipairs(zkeys) do
+        if newbib[key] then
+            if not bib[key] then table.insert(order, key) end
+            bib[key] = newbib[key]
+        end
     end
+
+    local new_content = serialize_bib(bib, order, prefix)
+    if old_content and old_content == new_content then return end
 
     f = io.open(bibf, "w")
     if f then
-        for _, v in pairs(bib) do
-            f:write(table.concat(v, "\n") .. "\n")
-        end
+        f:write(new_content)
         f:close()
     end
 end
